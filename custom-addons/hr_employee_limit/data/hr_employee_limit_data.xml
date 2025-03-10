@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- No default configuration is created. Employee creation will be unlimited until a configuration is manually created and enabled. -->
+</odoo>
