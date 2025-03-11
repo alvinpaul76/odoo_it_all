@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_res_user_limit_config_admin,res.user.limit.config admin,model_res_user_limit_config,base.group_system,1,1,1,1
+access_res_user_limit_config_user,res.user.limit.config user,model_res_user_limit_config,base.group_user,1,0,0,0
