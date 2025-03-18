@@ -15,8 +15,8 @@
         - Allow users to review and edit extracted data
     """,
     'category': 'Human Resources/Expenses',
-    'author': 'Odoo SA',
-    'website': 'https://www.odoo.com',
+    'author': 'Alvin Paul L. Azurin',
+    'website': 'https://www.cre8or-lab.com',
     'depends': ['hr_expense'],
     'data': [
         'security/ir.model.access.csv',
