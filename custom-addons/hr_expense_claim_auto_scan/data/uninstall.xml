@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- Drop PostgreSQL function during module uninstallation -->
+        <function model="ir.model" name="_execute_sql">
+            <value>
+                DROP FUNCTION IF EXISTS process_receipt_scan(integer);
+            </value>
+        </function>
+    </data>
+</odoo>

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Extend Expense Form View -->
+    <record id="hr_expense_view_form_with_receipt_scan" model="ir.ui.view">
+        <field name="name">hr.expense.view.form.with.receipt.scan</field>
+        <field name="model">hr.expense</field>
+        <field name="inherit_id" ref="hr_expense.hr_expense_view_form"/>
+        <field name="arch" type="xml">
+            <!-- Add scan button in the header after the attach_document widget -->
+            <xpath expr="//header/widget[@name='attach_document'][last()]" position="after">
+                <button name="action_scan_receipt" string="Scan Receipt" type="object" 
+                        class="oe_highlight" icon="fa-magic"
+                        invisible="nb_attachment == 0"
+                        help="Scan the attached receipt to extract information"/>
+            </xpath>
+            
+            <!-- Hide tax_ids (included taxes) field -->
+            <xpath expr="//field[@name='tax_ids']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            
+            <!-- Reorder fields: description, category, total, tax -->
+            <!-- First, remove the fields we want to reposition -->
+            <xpath expr="//field[@name='product_id']" position="replace"/>
+            <xpath expr="//field[@name='total_amount']" position="replace"/>
+            <xpath expr="//field[@name='tax_amount']" position="replace"/>
+            
+            <!-- Then add them back in the desired order after description -->
+            <xpath expr="//field[@name='description']" position="after">
+                <div class="o_group">
+                    <div class="o_row">
+                        <field name="product_id" options="{'no_create': True}" 
+                               readonly="not is_editable"
+                               context="{'default_can_be_expensed': 1, 'default_purchase_ok': 0, 'default_sale_ok': 0}"/>
+                        <label for="product_id" string="Category" class="ps-2"/>
+                    </div>
+                    <div class="o_row mt-2">
+                        <field name="total_amount" widget='monetary'
+                               readonly="not is_editable or product_has_cost"
+                               options="{'currency_field': 'company_currency_id'}" decoration-bf="1"/>
+                        <label for="total_amount" string="Total" class="ps-2"/>
+                    </div>
+                    <div class="o_row mt-2">
+                        <field name="tax_amount" widget="monetary" options="{'currency_field': 'company_currency_id'}" 
+                               readonly="not is_editable" class="oe_inline"/>
+                        <label for="tax_amount" string="Tax" class="ps-2"/>
+                    </div>
+                </div>
+            </xpath>
+            
+            <!-- Add scan details section after our reordered fields -->
+            <xpath expr="//field[@name='description']" position="after">
+                <div invisible="not scanned_receipt" class="mt-3">
+                    <h3>Receipt Scan Details</h3>
+                    <group>
+                        <group>
+                            <field name="scanned_receipt" invisible="1"/>
+                            <field name="scan_date" readonly="1"/>
+                            <field name="confidence_score" readonly="1" widget="percentage"/>
+                        </group>
+                        <group>
+                            <field name="scan_message" readonly="1" widget="text_html"/>
+                        </group>
+                    </group>
+                </div>
+            </xpath>
+        </field>
+    </record>
+    
+    <!-- Extend Expense Tree View to hide tax_ids and show tax_amount -->
+    <record id="hr_expense_view_tree_with_tax_amount" model="ir.ui.view">
+        <field name="name">hr.expense.tree.with.tax.amount</field>
+        <field name="model">hr.expense</field>
+        <field name="inherit_id" ref="hr_expense.view_expenses_tree"/>
+        <field name="arch" type="xml">
+            <!-- Hide tax_ids field -->
+            <xpath expr="//field[@name='tax_ids']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            
+            <!-- Make tax_amount visible -->
+            <xpath expr="//field[@name='tax_amount']" position="attributes">
+                <attribute name="optional">show</attribute>
+            </xpath>
+            
+            <!-- Reorder columns in tree view -->
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="description" optional="show"/>
+                <field name="product_id" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
