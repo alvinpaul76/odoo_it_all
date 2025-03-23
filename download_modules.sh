@@ -13,7 +13,6 @@ declare -A files=(
     # Add more files as needed in the format ["file_id"]="filename"
 )
 
-https://drive.google.com/file/d/1a-K42QywtCvh5GNKTp7f6MwEw63zJvMB/view?usp=drive_link
 # Download each file
 for fileid in "${!files[@]}"; do
     filename="${files[$fileid]}"
@@ -24,5 +23,3 @@ for fileid in "${!files[@]}"; do
 done
 
 echo "All downloads completed"
-
-https://drive.google.com/file/d/1RRD4idbtorStjRZB6qkzLh7a_Cssum3k/view?usp=drive_link
