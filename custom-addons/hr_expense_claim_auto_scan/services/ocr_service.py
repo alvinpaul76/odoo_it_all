@@ -201,27 +201,33 @@ def process_receipt_ocr(file_data, file_name):
                                           "Message: %s, Hint: %s", 
                                           timestamp, error_data.get('message', ''), error_hint)
                             
-                            # Return mock data for webhook errors
-                            _logger.info("[%s] Returning mock OCR data for webhook error", timestamp)
-                            mock_data = {
-                                'output': {
-                                    'business_name': 'Test Vendor Inc.',
-                                    'receipt_number': 'TEST-1234',
-                                    'date': datetime.datetime.now().strftime('%Y-%m-%d'),
-                                    'items': [
-                                        {
-                                            'quantity': 1,
-                                            'description': 'Test Product (Webhook Fallback)',
-                                            'amount': 100.00
-                                        }
-                                    ],
-                                    'subtotal': 100.00,
-                                    'tax': 10.00,
-                                    'total_amount': 110.00
+                            # Only return mock data for webhook errors if test_mode is enabled
+                            if test_mode:
+                                _logger.info("[%s] Returning mock OCR data for webhook error (test_mode enabled)", timestamp)
+                                mock_data = {
+                                    'output': {
+                                        'business_name': 'Test Vendor Inc.',
+                                        'receipt_description': 'Miscellaneous Expenses from Test Vendor Inc.',
+                                        'receipt_category': 'EXP_GEN',
+                                        'receipt_number': 'TEST-1234',
+                                        'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+                                        'items': [
+                                            {
+                                                'quantity': 1,
+                                                'description': 'Test Product (Webhook Fallback)',
+                                                'amount': 100.00
+                                            }
+                                        ],
+                                        'subtotal': 100.00,
+                                        'tax': 10.00,
+                                        'total_amount': 110.00
+                                    }
                                 }
-                            }
-                            _logger.info("[%s] Mock OCR data: %s", timestamp, json.dumps(mock_data))
-                            return mock_data
+                                _logger.info("[%s] Mock OCR data: %s", timestamp, json.dumps(mock_data))
+                                return mock_data
+                            else:
+                                _logger.error("[%s] OCR API webhook not registered and test_mode is disabled. Cannot process receipt.", timestamp)
+                                return False
                 except (ValueError, json.JSONDecodeError) as e:
                     _logger.error("[%s] Error parsing OCR API error response: %s", timestamp, str(e))
             

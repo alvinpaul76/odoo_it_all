@@ -18,7 +18,7 @@ class HrExpense(models.Model):
         ('failed', 'Failed')
     ], string='OCR Status', default=False, copy=False, help="Status of OCR processing for this expense")
     
-    ocr_message = fields.Text(string='OCR Message', copy=False, size=256, help="Message from OCR processing")
+    ocr_message = fields.Text(string='OCR Message', copy=False, size=2048, help="Message from OCR processing")
     
     business_name = fields.Char(string='Business Name', copy=False, size=64, help="Business name extracted from receipt")
     
@@ -48,7 +48,7 @@ class HrExpense(models.Model):
             _logger.info("No attachment found for expense %s", self.id)
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': _("No receipt attachment found to scan.")
+                'ocr_message': _("No receipt attachment found to scan.")[:2048]
             })
             return False
             
@@ -69,7 +69,7 @@ class HrExpense(models.Model):
                 _logger.warning("OCR processing returned no result for expense %s", self.id)
                 self.write({
                     'ocr_status': 'failed',
-                    'ocr_message': _("OCR processing failed to extract data from the receipt.")
+                    'ocr_message': _("OCR processing failed to extract data from the receipt.")[:2048]
                 })
                 return False
                 
@@ -81,21 +81,21 @@ class HrExpense(models.Model):
             _logger.error("User error in OCR processing for expense %s: %s", self.id, str(e))
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': str(e)
+                'ocr_message': str(e)[:2048]
             })
             return False
         except (ValueError, TypeError, ValidationError) as e:
             _logger.error("Validation error in OCR processing for expense %s: %s", self.id, str(e))
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': _("Validation error during OCR processing: %s") % str(e)[:200]
+                'ocr_message': _("Validation error during OCR processing: %s") % str(e)[:2048]
             })
             return False
         except Exception as e:
             _logger.error("Error in OCR processing for expense %s: %s", self.id, str(e), exc_info=True)
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': _("An error occurred during OCR processing: %s") % str(e)[:200]
+                'ocr_message': _("An error occurred during OCR processing: %s") % str(e)[:2048]
             })
             return False
     
@@ -145,7 +145,7 @@ class HrExpense(models.Model):
             _logger.error("OCR processing failed for expense %s: %s", self.id, error_message)
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': _("OCR processing failed to extract data from the receipt. %s") % error_message[:256]
+                'ocr_message': _("OCR processing failed to extract data from the receipt. %s") % error_message[:2048]
             })
             return False
         
@@ -158,7 +158,7 @@ class HrExpense(models.Model):
             _logger.warning("Invalid OCR data format for expense %s", self.id)
             self.write({
                 'ocr_status': 'failed',
-                'ocr_message': _("Invalid OCR data format received.")[:256]
+                'ocr_message': _("Invalid OCR data format received.")[:2048]
             })
             return False
             
@@ -216,17 +216,24 @@ class HrExpense(models.Model):
         expense_date = None
         if ocr_data.get('date'):
             date_str = ocr_data.get('date')
+            _logger.info("Attempting to parse date from OCR data: %s", date_str)
             try:
                 # Try different date formats
-                for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%m/%d/%Y %I:%M %p', '%d/%m/%Y %H:%M']:
+                for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%m-%d-%Y', '%d-%m-%Y', 
+                           '%m/%d/%Y %I:%M %p', '%d/%m/%Y %H:%M', '%Y-%m-%dT%H:%M:%S',
+                           '%B %d, %Y', '%d %B %Y']:
                     try:
                         expense_date = datetime.strptime(date_str, fmt).date()
+                        _logger.info("Successfully parsed date '%s' with format '%s'", date_str, fmt)
                         break
                     except ValueError:
                         continue
                     
                 if expense_date:
                     vals['date'] = expense_date
+                    _logger.info("Set expense date to %s", expense_date)
+                else:
+                    _logger.warning("Could not parse date '%s' with any known format", date_str)
             except (ValueError, TypeError) as e:
                 _logger.warning("Could not parse date '%s' for expense %s: %s", 
                                date_str, self.id, str(e))
@@ -243,21 +250,169 @@ class HrExpense(models.Model):
                     vals['name'] = first_item.get('description')
         elif ocr_data.get('description') and self.env['hr.expense']._fields.get('name') and hasattr(self, 'name') and not self.name:
             vals['name'] = ocr_data.get('description')
+        
+        # Set description based on receipt_description if available
+        if ocr_data.get('receipt_description'):
+            vals['name'] = ocr_data.get('receipt_description')
+            _logger.info("Setting expense description from receipt_description: %s", ocr_data.get('receipt_description'))
+        
+        # Set expense category based on receipt_category if available
+        if ocr_data.get('receipt_category') and self.env['hr.expense']._fields.get('product_id'):
+            category_name = ocr_data.get('receipt_category')
+            _logger.info("Looking for expense category matching: %s", category_name)
+            
+            # Get available expense categories
+            available_products = self.env['product.product'].search([
+                ('can_be_expensed', '=', True)
+            ])
+            
+            if not available_products:
+                _logger.warning("No expense categories (expensable products) found in the system")
+            
+            # Normalize the category name for better matching
+            normalized_category = category_name
+            if isinstance(normalized_category, str):
+                normalized_category = normalized_category.strip().upper()
+            
+            # Try to find a matching product using multiple methods
+            methods = [
+                # Method 1: Exact match on default_code
+                lambda: self.env['product.product'].search([
+                    ('default_code', '=', category_name),
+                    ('can_be_expensed', '=', True)
+                ], limit=1),
+                
+                # Method 2: Case-insensitive match on default_code
+                lambda: self.env['product.product'].search([
+                    ('default_code', 'ilike', category_name),
+                    ('can_be_expensed', '=', True)
+                ], limit=1),
+                
+                # Method 3: Match on name
+                lambda: self.env['product.product'].search([
+                    ('name', 'ilike', category_name),
+                    ('can_be_expensed', '=', True)
+                ], limit=1),
+                
+                # Method 4: Manual comparison with normalized values
+                lambda: self._find_product_by_normalized_code(available_products, normalized_category)
+            ]
+            
+            # Try each method in sequence
+            product = None
+            for method in methods:
+                product = method()
+                if product:
+                    break
+            
+            if product:
+                vals['product_id'] = product.id
+                _logger.info("Set expense category to product: %s (ID: %s)", product.name, product.id)
+                
+                # Add a note in the chatter about the OCR processing
+                if hasattr(self, 'message_post'):
+                    note = _("OCR Processing: Expense category set to '%s' based on receipt category '%s'.") % (
+                        product.name, category_name)
+                    self.message_post(body=note)
+            else:
+                _logger.info("No matching expense category found for: '%s'", category_name)
+            
+        # If no description was set from OCR data, use the filename of the attachment
+        if not vals.get('name') and hasattr(self, 'message_main_attachment_id') and self.message_main_attachment_id:
+            filename = self.message_main_attachment_id.name
+            if filename:
+                vals['name'] = filename
+                _logger.info("Setting expense description to attachment filename: %s", filename)
             
         # Update expense with extracted values
         if vals:
+            # Create a detailed OCR message with better formatting
+            ocr_message_parts = [_("✅ Receipt data successfully extracted")]
+            
+            # Format the extracted data in a more visually appealing way
+            details = []
+            if 'business_name' in vals:
+                details.append("🏢 %s: %s" % (_("Vendor"), vals['business_name']))
+            if 'name' in vals:
+                details.append("📝 %s: %s" % (_("Description"), vals['name']))
+            if 'product_id' in vals:
+                product = self.env['product.product'].browse(vals['product_id'])
+                details.append("🏷️ %s: %s" % (_("Category"), product.name))
+            if 'total_amount_currency' in vals:
+                details.append("💰 %s: %s %s" % (
+                    _("Amount"), 
+                    vals['total_amount_currency'], 
+                    self.currency_id.name if hasattr(self, 'currency_id') else ''))
+            if 'date' in vals:
+                details.append("📅 %s: %s" % (_("Date"), vals['date']))
+            
+            # Add the formatted details to the message
+            if details:
+                ocr_message_parts.append("\n".join(details))
+            
+            # Add itemized details if available
+            if ocr_data.get('items') and isinstance(ocr_data.get('items'), list):
+                items = ocr_data.get('items')
+                if items:
+                    ocr_message_parts.append("📋 %s:" % _("Items"))
+                    
+                    item_lines = []
+                    
+                    for item in items:
+                        item_desc = item.get('description', '')
+                        item_qty = item.get('quantity', '')
+                        item_amount = item.get('amount', '')
+                        
+                        # Format each item line
+                        item_parts = []
+                        if item_qty:
+                            item_parts.append(str(item_qty) + "×")
+                        if item_desc:
+                            item_parts.append(item_desc)
+                        if item_amount:
+                            item_parts.append("(" + str(item_amount) + ")")
+                        
+                        if item_parts:
+                            item_lines.append("  • " + " ".join(item_parts))
+                    
+                    if item_lines:
+                        ocr_message_parts.append("\n".join(item_lines))
+            
+            # Set the OCR message with all the details - use a larger field if available
             vals['ocr_status'] = 'processed'
-            vals['ocr_message'] = _("Receipt data successfully extracted.")[:256]
+            
+            # Combine all parts into a single message
+            full_message = "\n\n".join(ocr_message_parts)
+            
+            # Check if there's a larger field available for the full message
+            if hasattr(self, 'ocr_details') and 'ocr_details' in self._fields:
+                vals['ocr_details'] = full_message
+                vals['ocr_message'] = _("✅ Receipt data successfully extracted. See details below.")[:2048]
+            else:
+                # If no larger field is available, truncate to fit in ocr_message
+                vals['ocr_message'] = full_message[:2048]
+                if len(full_message) > 2048:
+                    _logger.info("OCR message truncated from %d to 2048 characters", len(full_message))
+            
             self.write(vals)
-            _logger.info("Updated expense %s with OCR data: %s", self.id, vals)
+            _logger.info("Updated expense %s with OCR data", self.id)
         else:
             self.write({
                 'ocr_status': 'processed',
-                'ocr_message': _("Receipt processed but no useful data was extracted.")[:256]
+                'ocr_message': _("Receipt processed but no useful data was extracted.")[:2048]
             })
             _logger.warning("No useful data extracted from OCR for expense %s", self.id)
             
         return True
+    
+    def _find_product_by_normalized_code(self, products, normalized_code):
+        """Manual search for a product by normalized default code."""
+        for product in products:
+            if product.default_code:
+                normalized_product_code = product.default_code.strip().upper()
+                if normalized_product_code == normalized_code:
+                    return product
+        return None
     
     def action_scan_receipt(self):
         """Manual action to scan receipt attachment."""
