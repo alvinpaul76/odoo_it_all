@@ -7,6 +7,7 @@ import datetime
 import odoo
 from odoo import api, SUPERUSER_ID
 from odoo.modules.registry import Registry
+import threading
 
 _logger = logging.getLogger(__name__)
 
@@ -54,11 +55,42 @@ def process_receipt_ocr(file_data, file_name):
                timestamp, file_name)
     
     # Get the current database name from the Odoo registry
-    db_name = odoo.tools.config['db_name']
+    db_name = odoo.tools.config.get('db_name')
+    
+    if not db_name:
+        # Try to get database name from the current thread
+        db_name = getattr(threading.current_thread(), 'dbname', None)
+        
+    if not db_name:
+        # Try to get from the HTTP request if available
+        try:
+            from odoo.http import request
+            if request and request.db:
+                db_name = request.db
+        except (ImportError, RuntimeError):
+            pass
+    
+    if not db_name:
+        # Try to get from active registry
+        registry_list = Registry.registries.list()
+        if registry_list:
+            # If there's only one database in the registry, use that
+            if len(registry_list) == 1:
+                db_name = registry_list[0]
+            else:
+                _logger.debug("[%s] Multiple databases found in registry: %s", timestamp, registry_list)
+                # Check if we're running in a specific database context from logs
+                for db in registry_list:
+                    if Registry.registries.contains(db) and Registry.registries[db]._init:
+                        db_name = db
+                        break
+    
     if not db_name:
         _logger.error("[%s] Could not determine database name for OCR processing", timestamp)
         return False
         
+    _logger.info("[%s] Using database: %s for OCR processing", timestamp, db_name)
+    
     # Get a new environment with superuser
     try:
         with Registry(db_name).cursor() as cr:
@@ -67,7 +99,7 @@ def process_receipt_ocr(file_data, file_name):
             # Get API key and URL from system parameters
             ICP = env['ir.config_parameter'].sudo()
             api_key = ICP.get_param('ocr_api_key', False)
-            api_url = ICP.get_param('ocr_api_url', 'https://n8n.cre8or-lab.com/webhook-test/extract-receipt-details')
+            api_url = ICP.get_param('ocr_api_url', 'https://n8n.cre8or-lab.com/webhook/extract-receipt-details')
             test_mode = ICP.get_param('ocr_test_mode', 'False').lower() == 'true'
             
             if not api_key and not test_mode:
@@ -169,27 +201,33 @@ def process_receipt_ocr(file_data, file_name):
                                           "Message: %s, Hint: %s", 
                                           timestamp, error_data.get('message', ''), error_hint)
                             
-                            # Return mock data for webhook errors
-                            _logger.info("[%s] Returning mock OCR data for webhook error", timestamp)
-                            mock_data = {
-                                'output': {
-                                    'business_name': 'Test Vendor Inc.',
-                                    'receipt_number': 'TEST-1234',
-                                    'date': datetime.datetime.now().strftime('%Y-%m-%d'),
-                                    'items': [
-                                        {
-                                            'quantity': 1,
-                                            'description': 'Test Product (Webhook Fallback)',
-                                            'amount': 100.00
-                                        }
-                                    ],
-                                    'subtotal': 100.00,
-                                    'tax': 10.00,
-                                    'total_amount': 110.00
+                            # Only return mock data for webhook errors if test_mode is enabled
+                            if test_mode:
+                                _logger.info("[%s] Returning mock OCR data for webhook error (test_mode enabled)", timestamp)
+                                mock_data = {
+                                    'output': {
+                                        'business_name': 'Test Vendor Inc.',
+                                        'receipt_description': 'Miscellaneous Expenses from Test Vendor Inc.',
+                                        'receipt_category': 'EXP_GEN',
+                                        'receipt_number': 'TEST-1234',
+                                        'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+                                        'items': [
+                                            {
+                                                'quantity': 1,
+                                                'description': 'Test Product (Webhook Fallback)',
+                                                'amount': 100.00
+                                            }
+                                        ],
+                                        'subtotal': 100.00,
+                                        'tax': 10.00,
+                                        'total_amount': 110.00
+                                    }
                                 }
-                            }
-                            _logger.info("[%s] Mock OCR data: %s", timestamp, json.dumps(mock_data))
-                            return mock_data
+                                _logger.info("[%s] Mock OCR data: %s", timestamp, json.dumps(mock_data))
+                                return mock_data
+                            else:
+                                _logger.error("[%s] OCR API webhook not registered and test_mode is disabled. Cannot process receipt.", timestamp)
+                                return False
                 except (ValueError, json.JSONDecodeError) as e:
                     _logger.error("[%s] Error parsing OCR API error response: %s", timestamp, str(e))
             
