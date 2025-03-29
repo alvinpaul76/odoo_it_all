@@ -10,6 +10,7 @@ declare -A files=(
     ["13IciLbbFPYdkYyG7fsTGSq8cdIgL4AtN"]="hr_employee_limit.zip"
     ["1a-K42QywtCvh5GNKTp7f6MwEw63zJvMB"]="res_user_limit.zip"
     ["1RRD4idbtorStjRZB6qkzLh7a_Cssum3k"]="disable_odoo_online-18.0.1.0.0.zip"
+    ["19LL7BTE100IhudU0mHKdk3Y1_f7bPFcO"]="hr_expense_claim_auto_scan.zip"
     # Add more files as needed in the format ["file_id"]="filename"
 )
 
@@ -17,7 +18,8 @@ declare -A files=(
 for fileid in "${!files[@]}"; do
     filename="${files[$fileid]}"
     echo "Downloading ${filename}"
-    curl -L -o "${filename}" "https://drive.google.com/uc?export=download&id=${fileid}"
+    curl -L -o "${filename}" "https://drive.google.com/uc?export=download&id=${f
+ileid}"
     unzip -o -q "${filename}"
     rm "${filename}"
 done
