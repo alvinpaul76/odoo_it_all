@@ -18,8 +18,7 @@ declare -A files=(
 for fileid in "${!files[@]}"; do
     filename="${files[$fileid]}"
     echo "Downloading ${filename}"
-    curl -L -o "${filename}" "https://drive.google.com/uc?export=download&id=${f
-ileid}"
+    curl -L -o "${filename}" "https://drive.google.com/uc?export=download&id=${fileid}"
     unzip -o -q "${filename}"
     rm "${filename}"
 done
